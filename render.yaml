@@ -1,0 +1,30 @@
+# Render Blueprint — Herobot (Telegram bot + veb-panel, webhook rejimi)
+# Baza (PostgreSQL) bu faylda YO'Q: uni dashboard'da qo'lda yarating va "Internal Database URL"ni DATABASE_URL ga qo'ying.
+services:
+  - type: web
+    name: herobot
+    runtime: python
+    plan: starter              # bepul reja 15 daqiqada uxlaydi — bot va fon vazifalari uchun yaramaydi
+    region: frankfurt          # bazaning regioni BILAN BIR XIL bo'lishi shart (ichki ulanish uchun)
+    numInstances: 1            # faqat 1 nusxa: zaxira, token-healer va jadval yangilash fon vazifalari takrorlanmasin
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ENCRYPTION_KEY    # Railway'dagi BILAN BIR XIL bo'lishi shart, aks holda saqlangan parollar tiklanmaydi
+        sync: false
+      - key: JWT_SECRET        # Railway'dagini qo'ysangiz foydalanuvchilar qayta kirmaydi
+        generateValue: true
+      - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: BOT_USERNAME
+        sync: false
+      # WEBAPP_URL shart emas: Render bergan RENDER_EXTERNAL_URL avtomatik ishlatiladi.
+      # O'z domeningizni ulasangiz — WEBAPP_URL=https://domeningiz qo'shing.

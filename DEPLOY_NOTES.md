@@ -1,0 +1,179 @@
+# Herobot — ishga tushirish (muhim o'zgaruvchilar)
+
+| O'zgaruvchi | Majburiy | Izoh |
+|---|---|---|
+| `BOT_TOKEN` | ha | Telegram bot tokeni |
+| `ADMIN_ID` | ha | Bosh adminning Telegram ID'si |
+| `WEBAPP_URL` | ha | Mini-ilova manzili (https://...) |
+| `DATABASE_URL` | ha | PostgreSQL ulanishi |
+| `ENCRYPTION_KEY` | **ha** | Hero parollarini shifrlash kaliti. Bo'lmasa bot ISHGA TUSHMAYDI. Bir marta yarating va **saqlab qo'ying** — yo'qolsa parollar tiklanmaydi: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `JWT_SECRET` | **ha (amalda)** | Bo'lmasa har restartda hamma qayta kirishi kerak bo'ladi. Yaratish: `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
+| `WEBHOOK_SECRET` | tavsiya | Webhook yo'li `/webhook/{WEBHOOK_SECRET}`. Bo'lmasa tokendan hash olinadi. Telegram'ga `secret_token` sarlavhasi ham o'rnatiladi |
+| `BOT_USERNAME` | yo'q | Landing sahifasi uchun |
+| `BACKUP_HOUR` | yo'q | Kunlik zaxira soati (Toshkent, standart 3) |
+| `ALLOW_EPHEMERAL_KEY=1` | faqat sinov | Kalitsiz vaqtincha ishga tushirish (parollar restartda yo'qoladi) |
+
+Eslatmalar:
+- Zaxira JSON'dagi Hero parollari shifrlangan; tiklash uchun xuddi shu `ENCRYPTION_KEY` kerak. Excel'da parollar yashirilgan.
+- Sinov bot va asosiy bot bir bazadan foydalansa, foydalanuvchilar sinov botga ham `/start` yuborishi kerak (Telegram qoidasi), aks holda suhbat xabari yetmaydi.
+- Bazaga yangi ustun/indekslar ishga tushganda o'zi qo'shiladi.
+
+Deploy tartibi:
+1. BotFather'da `/revoke` → yangi tokenni Railway'da `BOT_TOKEN` ga qo'ying (eski token loglarda qolgan).
+2. `JWT_SECRET`, `ENCRYPTION_KEY` (eskisi o'zgarmasin!), `WEBHOOK_SECRET` ni tekshiring.
+3. Railway'da **faqat 1 replika** bo'lsin: kunlik zaxira, token-healer va jadval yangilash fon vazifalari bitta nusxada ishlashi kerak.
+4. Deploy'dan keyin logda `/webhook/***` ko'rinishi va `getWebhookInfo` da xato yo'qligini tekshiring.
+
+## Yangi o'zgarishlar (fixed2)
+
+**Avtomatik yaratiladigan baza o'zgarishlari** (qo'lda hech narsa qilish shart emas):
+- Yangi jadval `account_activity` (+ 2 indeks) — har skanerdagi har bir akkaunt natijasi. Birinchi ishga tushishda jadval bo'sh bo'lsa, `scan_logs` dan so'nggi 180 kun avtomatik to'ldiriladi (bir martalik). 365 kundan eskilari kuniga bir marta o'chiriladi.
+- Yangi ustun `app_users.pw_changed_at` (parol almashgan vaqt).
+
+**Admin panel**
+- Yangi bo'lim «📒 Akkaunt tarixi» (ism/ID/email bo'yicha qidiruv; qaysi darsga, qachon, qanday yo'l bilan kirgani). `/api/admin/acct_detail` o'qilishi admin jurnaliga yoziladi.
+- «Sharpa» (admin tomoni) olib tashlandi — uning o'rniga «Hamrohlar». Foydalanuvchilar orasidagi «Ulashish» ishlashda davom etadi.
+- Bir martalik tozalash: ishga tushganda adminlarning `shadow_targets` ro'yxatidan faqat haqiqiy ulashilganlar (`share_codes` orqali) qoladi, qolgani olib tashlanadi; sonini logda ko'rasiz: «🧹 Admin sharpa tozalash: N ta yozuv olib tashlandi». Oddiy foydalanuvchilarga tegilmaydi.
+  Eslatma: zaxiradan import qilinganda `share_codes` tiklanmaydi — import qilingan adminning ulashilgan ulanishlari keyingi restartda tozalanishi mumkin.
+- «+30 kun» tugmasi: tasdiq so'raydi, cheksiz (NULL) muddatga tegmaydi, javobni tekshiradi, katakni o'sha joyda yangilaydi, foydalanuvchiga Telegram xabari yuboradi (bloklanganga yubormaydi).
+
+**/reset yangi xatti-harakati**
+- Darrov almashtirmaydi: «Yangi parol berilsinmi?» + [✅ Ha, yangi parol] [❌ Bekor]. Tasdiq 5 daqiqada eskiradi.
+- Cheklov: 60 soniyada 1 marta, soatiga 5 martagacha (xotirada — restartda nolga qaytadi).
+- Bloklangan foydalanuvchi parol ola olmaydi.
+- Parol almashgach eski veb-sessiyalar (JWT) ishlamay qoladi. **Deploydan oldin berilgan tokenlarda `iat` yo'q**, shuning uchun ular faqat o'sha foydalanuvchi keyinchalik `/reset` qilgandagina yopiladi; boshqalar uzilmaydi.
+- Obuna muddati hamon faqat loginda tekshiriladi (JWT 30 kun yashaydi) — o'zgartirilmagan.
+
+**Skaner (0/N)**
+- Hero «QR Code not found» desa — yangi sabab `qr_invalid` («QR kod topilmadi yoki eskirgan»), qayta urinishsiz. Akkaunt salomatligiga ta'sir qilmaydi (`not_in_lesson` kabi). Loglarda email `e***@domen` ko'rinishida.
+- 0/N bo'lsa ham dars nomi akkauntlar jadvalidan olinadi (topilsa).
+
+**Testlar**: `pip install -r requirements-dev.txt`, so'ng
+`ALLOW_EPHEMERAL_KEY=1 BOT_TOKEN=123:abc DATABASE_URL=postgres://x ADMIN_ID=1 python3 -m pytest -q`
+
+## fixed3
+
+**Admin panel → «👥 Userlar»**
+- Har bir userning ostida u ASOSIY (⭐) qilib belgilagan Gmail ko'rinadi (Telegram @username bilan birga; username bo'lmasa telefon/ism).
+- Yangi tugma «⭐ Asosiy Gmail belgilaganlar (N)» — faqat asosiy akkaunt belgilagan userlarni qoldiradi; qayta bossangiz hammasi qaytadi.
+- User ustiga bosilganda ochiladigan akkauntlar ro'yxatida asosiysi ⭐ bilan belgilanadi.
+- Baza o'zgarmaydi (faqat `get_super_admin_data` so'rovi `username`, `primary_email`, `is_primary` ni ham qaytaradi).
+
+## fixed5 — Dark mode (Claude ilovasi ranglari)
+
+**Mavzu (light / dark)** — mini-ilova (`scanner.html`) va landing (`index.html`).
+- Tugma: login ekranida va boshqaruv panelida (til tugmalari yonida), landing'da navbar'da. Tanlov brauzerda (`localStorage` → `h_theme`) saqlanadi, ikkala sahifa uchun umumiy.
+- Tanlanmagan bo'lsa: Telegram ichida — Telegram mavzusi, brauzerda — tizim mavzusi. Telegram yoki tizim mavzusi o'zgarsa, o'zi tanlamagan foydalanuvchida avtomatik almashadi.
+- Telegram sarlavha/fon rangi va brauzer `theme-color` ham mavzuga qarab almashadi. Sahifa yuklanishida oq miltillash yo'q.
+- Yorug' rejim avvalgidek (asl nusxa bilan piksel-piksel solishtirilgan; farq faqat yangi tugma).
+
+**Dark ranglari — Claude ilovasidan**
+- Fon `#151515`, karta/kirish maydoni sirti `#20201e` — Claude ilovasi skrinshotidan o'lchangan qiymatlar.
+- Matn `#faf9f5`, ikkinchi darajali `#b0aea5`, aksent `#d97757` (terrakota), asosiy tugma `#c6613f` — Anthropic brend ranglari.
+- Aksent faqat asosiy amallar (kirish, skaner, zaxira), havola va sarlavha urg'usida; tanlangan tab/chip — jim kulrang to'ldirish.
+- Yashil/qizil/sariq holat ranglari ham shu palitradan (Anthropic Green, Kraft).
+- Harakat: Emil Kowalski qoidalari — ease-out `cubic-bezier(.23,1,.32,1)`, bosilganda `scale(.97)`, modal `scale(.95)→1` (200 ms), quyi panel `cubic-bezier(.32,.72,0,1)`; 300 ms dan oshmaydi; hover faqat sichqonchali qurilmada; `prefers-reduced-motion` da siljish o'rniga so'nish.
+- Tugma ikonkalari: Lucide (sun / moon).
+
+**Texnik**: qattiq yozilgan ranglar CSS o'zgaruvchilariga o'tkazildi (`--card`, `--pop`, `--deep`, `--accent-solid`, `--*-rgb` ...). Dark palitrani o'zgartirish uchun `:root[data-theme="dark"]` bloki yetarli. PDF sahifa ko'rinishi (transcript) ataylab oq. Baza va server kodi o'zgarmagan.
+
+## fixed6 — QR URL'ni saqlash (tahlil uchun)
+- `scan_logs.qr_url` ustuni (avto-migratsiya), har skanerda to'liq QR URL saqlanadi (asosiy skaner va avto/hamroh qo'shimcha skanerlar).
+- Railway logida: `🔎 QR URL (user N): ...`
+- Admin panel → Skaner tarixi → qatorni bosing → "QR URL" ko'rinadi.
+
+## Yangi o'zgarishlar (fixed7) — Pullik rejim bo'limi
+- Admin panelda yangi «💎 Pullik rejim» bo'limi: qolgan kun, «Free trial tugadi» belgisi (qizil qator), 7 kunda tugaydiganlar (sariq), qidiruv (ism/@username/ID/Gmail), filtrlar (Hammasi/Faol/Tugagan/Cheksiz).
+- Muddat qo'shish: +7 / +30 / +90 yoki o'zingiz kiritgan kun (1–365). `/api/admin/extend` endi `days` parametrini qabul qiladi (bo'lmasa 30).
+- «Userlar» bo'limidan Obuna va +30 kun ustunlari olib tashlandi (tushunarliroq bo'lishi uchun).
+- Baza o'zgarmaydi, qo'lda hech narsa qilish shart emas.
+
+## fixed8 — Skaner ma'lumoti ustuni
+- «Tarix» bo'limida Dars/Vaqt o'rniga bitta ustun: fan + to'liq sana va vaqt (yil, soniyagacha, Toshkent). Oxirgi 300 ta skaner ko'rinadi (avval 50).
+- «Userlar» bo'limida yangi «Oxirgi skaner» ustuni (fan va vaqt).
+- Baza o'zgarmaydi: ma'lumot avvaldan `scan_logs` da saqlanib kelgan.
+
+## fixed9 — 🔳 QR kodlar bo'limi
+- Yangi jadval `qr_captures` (avtomatik yaratiladi): har skanerda QR ichidagi to'liq matn, host/yo'l/parametrlar, fan, natija va Hero javobining boshi saqlanadi. Begona (hero.study bo'lmagan) QR ham saqlanadi, lekin skanerlanmaydi. Eski skanerlar uchun faqat `scan_logs.qr_url` bor, ular bu jadvalga o'tmaydi.
+- Admin panelda «🔳 QR kodlar»: qidiruv, qatorni bossangiz to'liq tafsilot.
+- «Hammasini yuklab olish» — CSV (Excel uchun) + JSON fayllari Telegram chatingizga yuboriladi (Mini App ichida oddiy yuklash ishlamagani uchun, zaxira kabi).
+
+## fixed10 — Dars jadvalida guruh (stream) ID'si
+- Har QR skaner qilinganda QR ichidagi (base64) matn o'qib ko'riladi: fan nomi, guruh (stream) ID, dars turi, boshlanish/tugash vaqti. Faqat O'QIYDI, hech narsa generatsiya qilmaydi/yubormaydi.
+- `qr_captures` jadvaliga yangi ustunlar: `stream_id`, `qr_subject`, `event_type` (avtomatik qo'shiladi).
+- «📅 Dars jadvali»da har dars nomi yonida, agar o'sha fan uchun QR'dan guruh ID aniqlangan bo'lsa, «ID: 2737» kabi chip chiqadi (fan nomi bo'yicha moslashtiriladi).
+- «🔳 QR kodlar» bo'limida ham fan/guruh ID ro'yxatda va tafsilotda ko'rinadi.
+- Eslatma: bu faqat ko'rish uchun — hech qanday avtomatik yoki QR'siz davomat belgilash qo'shilmadi.
+
+## fixed11 — QR'dagi boshlanish/tugash vaqti ham saqlanadi
+- `qr_captures` ga `qr_begin`, `qr_end` ustunlari qo'shildi (Unix vaqt, soniyada; agar QR millisoniyada bergan bo'lsa, o'zi soniyaga o'giradi).
+- «🔳 QR kodlar» tafsilotida endi: Fan (QR'dan), Guruh (stream) ID, Dars turi, Boshlanishi/Tugashi — hammasi Toshkent vaqtida ko'rsatiladi.
+
+## fixed12 — Darslar katalogi, QR dekodlash
+
+**Oldingi xato tuzatishlari (shu versiyada):** `friends.py` dars kaliti; `database.py` — NULL-trial, bcrypt, `lesson[:160]`, COALESCE; `backup.py`.
+
+**Baza (qo'lda hech narsa qilmang — hammasi `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`, eski ma'lumotga tegilmaydi)**
+- Yangi doimiy jadvallar: `lesson_catalog` (kalit `sana|boshlanish|fan|stream_id`; sana, vaqt, fan, stream_id, stream, tur, o'qituvchi, xona) va `lesson_catalog_emails` (`lesson_key`, `email`). Yozuvlar hech qachon o'chirilmaydi (faqat admin akkauntni butunlay o'chirsa, uning emaili `lesson_catalog_emails` dan olib tashlanadi).
+- `refresh_schedule()` da `save_schedule_ok` dan keyin katalog to'ldiriladi. Katalog BO'SH bo'lsa, ishga tushishda (va «🗂 Darslar jadvali» ochilganda) mavjud `hero_schedules.raw` dan bir martalik to'ldiriladi; logda: «🗂 Darslar katalogi hero_schedules dan to'ldirildi: N ta yozuv».
+- Eslatma: kalit ichida stream_id bor. Agar Hero javobida stream kaliti topilmasa, u bo'sh qoladi (kalit `sana|vaqt|fan|`). Keyin kalit nomi aniqlansa, bir xil dars alohida (stream_id'li) qator bo'lib qo'shiladi — eski (stream_id'siz) qator o'chmaydi.
+
+**hero_schedule.py**
+- `normalize_item()` endi `subject`, `stream_id`, `stream`, `event_type` ni ham qaytaradi. Kalit variantlari: `subject/subjectName/subject_name`, `stream_id/streamId/steam_id/steamId`, `stream/steam` (obyekt bo'lsa id + name), `event_type/eventType`; ichma-ich dict'larda ham qidiriladi. Xom javob o'zgarmaydi — kalit nomi boshqacha bo'lib chiqsa, faqat shu fayldagi `*_KEYS` ro'yxatlarini to'g'rilash kifoya (katalog keyingi yangilanishda to'ladi).
+
+**Admin panel**
+- Yangi «🗂 Darslar jadvali»: asosiy qator — DARS (sana, vaqt, fan, stream ID, stream, dars turi, o'qituvchi, xona, nechta email). Qatorni bossangiz shu darsi bor emaillar (ism, student ID, email, faol/nofaol). Qidiruv, fan/tur/sana (dan–gacha) filtrlari, Bugun/Kelgusi/O'tgan tugmalari. Endpoint: `GET /api/admin/lessons_table` (faqat super_admin).
+- Eski «📚 Darslar» va «📅 Dars jadvali» ishlaydi. `admin_schedule_detail` da stream_id endi jadvalning o'zidan olinadi; QR xaritasi faqat jadvalda stream_id bo'lmagan darslar uchun zaxira.
+- «🔳 QR kodlar»: har QR uchun karta (Fan, Stream ID, Dars turi, Boshlanish/Tugash — Toshkent vaqti; qolgan maydonlar chip ko'rinishida; xom URL «To'liq matn» ichida). Tafsilot oynasi ham shunday (dekodlangan JSON, parametrlar, Hero javobi).
+
+**QR dekodlash (`qr_decode.py`, yangi)**
+- `decode_qr_full(url)`: host, yo'l, barcha query parametrlar; base64 (oddiy `+/`, urlsafe `-_`, padding bor/yo'q, %-kodlangan) parametrlar dekodlanadi, JSON maydonlarga bo'linadi, ichma-ich `data` (JSON yoki yana base64) ham ochiladi.
+- **Xato tuzatildi:** `parse_qs` base64 dagi `+` ni bo'shliqqa aylantirib, dekodlashni buzardi. Endi query qo'lda ajratiladi va `unquote` (unquote_plus emas) ishlatiladi. `decode_qr_meta()` va `database._qr_parts()` ham shu orqali ishlaydi.
+- `get_qr_captures()` natijasida yangi `decoded` maydoni bor; eski yozuvlardagi `params` (bo'shliqqa aylangan `+`) xom matndan qayta o'qiladi (bazaga yozilgan qiymatlar o'zgarmaydi).
+
+**Testlar:** `tests/test_basic.py` ga `decode_qr_full` (plus/`%2B`/urlsafe/padding'siz/ichma-ich data/axlat kirish), `decode_qr_meta`, `_qr_parts`, `normalize_item` (variantlar) va `catalog_rows` testlari qo'shildi. Ishga tushirish yuqoridagi buyruq bilan.
+
+## upgrade (v-next)
+
+**Kutubxonalar** (hammasi sinovdan o'tgan, 36 ta test): aiogram 3.31, aiohttp 3.14.5, asyncpg 0.32, python-dotenv 1.2.4, PyJWT 2.15.1, bcrypt 5.0, cryptography 50.0.2.
+- bcrypt 5: 72 baytdan uzun parol endi xato beradi — login endpointi uzun/noto'g'ri turdagi maydonlarni 401 bilan rad etadi.
+
+**Xavfsizlik / barqarorlik**
+- Barcha javoblarga `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`; `/api/*` javoblariga `Cache-Control: no-store`.
+- JWT `exp` endi epoch son (eskirgan `datetime.utcnow()` olib tashlandi); eski tokenlar ishlashda davom etadi.
+- Login so'rovi tanasi `dict` bo'lmasa yoki maydonlar `str` bo'lmasa — toza 400/401.
+- Graceful shutdown: SIGTERM'da veb-server, bot sessiyasi va baza pooli yopiladi (Railway deploy paytida so'rovlar uzilmaydi).
+- `/health?deep=1` — bazaga haqiqiy `SELECT 1` yuboradi (Railway healthcheck oddiy `/health` da qoladi).
+
+**Yangi:** admin buyrug'i `/status` — ishlash vaqti, baza holati, foydalanuvchi/akkaunt soni, bugungi skanerlar.
+
+**Tuzilma:** kirish urinishlarini cheklash yordamchilari `ratelimit.py` ga ajratildi (xatti-harakat o'zgarmagan; `main._login_key` nomi saqlangan). Testlar uchun `pytest.ini` qo'shildi.
+
+## upgrade 2 — dizayn, animatsiya, yangi funksiyalar
+
+**Dark mode:** palitra yengilroq va jonliroq (fon `#1e1d24`, karta `#29282f`, aksent `#f4906d`), yengil gradient «aurora» fon, kartalarda nozik yorug'lik, tugmada gradient.
+**Animatsiyalar:** kartalar va akkaunt qatorlari ketma-ket paydo bo'ladi, skaner tugmasi «nafas oladi», tugmalarda ripple, bildirishnoma belgisi sakraydi, hover'da kartalar ko'tariladi. `prefers-reduced-motion` yoqilgan bo'lsa deyarli o'chadi. ✨ tugmasi bilan hammasini o'chirish mumkin (brauzerda saqlanadi).
+**Yangi funksiyalar:**
+- Skaner muvaffaqiyatli bo'lsa konfetti + Telegram tebranishi (xato bo'lsa — xato tebranishi).
+- Panelda shaxsiy chiplar: ⏳ qolgan kunlar (≤3 kun — qizil), 🔥 ketma-ket kunlik seriya, 📷 muvaffaqiyatli kirishlar.
+- `GET /api/me` va bot buyrug'i `/me` (menyuda «Mening profilim»).
+Baza o'zgarmaydi (faqat mavjud jadvallardan o'qiladi). Testlar: 38 ta.
+
+## Render'ga o'tish
+
+1. Dashboard → **New → PostgreSQL** (regionni eslab qoling, masalan Frankfurt). Tayyor bo'lgach **Internal Database URL** ni nusxalang.
+2. **New → Blueprint** → GitHub repo'ni tanlang (`render.yaml` avtomatik o'qiladi). So'ralgan o'zgaruvchilar: `BOT_TOKEN`, `ADMIN_ID`, `DATABASE_URL` (1-qadamdagi), `ENCRYPTION_KEY` (**Railway'dagi bilan bir xil**), `BOT_USERNAME`.
+   `JWT_SECRET` ni Railway'dagi qiymatga almashtirsangiz, foydalanuvchilar qayta kirishi shart bo'lmaydi.
+3. **Railway xizmatini to'xtating/o'chiring** — aks holda u restart bo'lganda webhook'ni o'ziga qaytarib oladi.
+4. Deploy tugagach botga `/status` yuboring; logda `✅ Veb-server ishga tushdi` va webhook xatosi yo'qligini tekshiring.
+5. Ma'lumotlarni ko'chirish (bittasini tanlang):
+   - **Bot orqali:** Railway'dagi botda admin paneldan zaxira JSON oling → yangi botda `/import` (yoki admin paneldagi import). Eslatma: `share_codes` tiklanmaydi.
+   - **To'liq nusxa:** `pg_dump "<Railway URL>" -Fc -f herobot.dump`, so'ng `pg_restore --no-owner -d "<Render External URL>" herobot.dump`.
+6. Bepul reja (Free) tavsiya etilmaydi: web xizmat 15 daqiqa trafiksiz qolsa uxlaydi (fon vazifalar to'xtaydi), bepul Postgres esa 30 kundan keyin o'chadi.
+
+## upgrade 3 — /broadcast menyusi va «akkaunt qo'shmaganlarga eslatma»
+
+- `/broadcast` (matnsiz) — tugmali menyu: **📢 Hammaga xabar yozish** (matnni keyingi xabarda yozasiz → ko'rib chiqish → tasdiqlash) va **📭 Akkaunt qo'shmaganlarga eslatma (N)**. Eski `/broadcast matn` tezkor usuli ishlayveradi.
+- Eslatma: `/start` bosgan, lekin birorta Hero akkaunt qo'shmagan (bloklanmagan) foydalanuvchilarga ketadi. Tayyor matn UZ/EN/RU da (`nudge.py`), har kimga o'z tilida, tagida «📱 Panelga Kirish» tugmasi bilan. «✏️ Matnni o'zgartirish» bilan o'z matningizni yozish ham mumkin.
+- Spamdan himoya: bir odamga 3 kunda 1 martadan ortiq eslatma ketmaydi (`sent_notices` jadvali orqali, qayta ishga tushganda ham saqlanadi). Yakunda hisobot: yuborildi / o'tkazildi / yetmadi.
+- Testlar: 43 ta.
